@@ -255,11 +255,6 @@ Survey data is not likely to capture the non declarative cultural elements. This
 
 With these limitations in mid, four english speaking countries, from frou different continents and with significantly different levels of corruption according to transparency now haven been chosen to extract data from.  In order to avoid overrepresentation of very active users, only one tweet per user will be permitted. The data was mined through several extractions conducted between the 1st and the 15th of September. 17.776 tweets which include the word “corruption”  have been extracted from EEUU, United Kingdom, South Africa, and India. The final dataset will consist of around 4.444 tweets for each country and 219.316 words in total.
 
-## Methodology
-
-### Sentiment Analysis
-The first analytically part of this paper will consist of a simple set of sentiment analysis techniques. Sentiment analysis assigns different sentiments with different criteria to words, although this approach only captures explicitly expressed declarations, and does ignore contextual information, as sarcasm for example, when conducted on large data-bases it is useful to gain meaningful insights on the data (Rafael A. Irizarry, 2021) For this research it will enable us to start understanding the different cultural contexts in which corruption is embedded, it will also provide valuable information that will be used in the subsequent sections of the paper.
-
 
 # Analysis
 
@@ -324,9 +319,11 @@ t4 <- corruption_or_india %>%
 ```
 
 ## Sentiment analysis
+The first analytical part of this paper will consist of a simple set of sentiment analysis techniques. Sentiment analysis assigns different sentiments with different criterias to words, although this approach only captures explicitly expressed declarations, and does ignore contextual information, as sarcasm for example, when conducted on large data-bases it is useful to gain meaningful insights on the data (Rafael A. Irizarry, 2021) For this research it will enable us to start understanding the different cultural contexts in which corruption is embedded, it will also provide valuable information that will be used in the subsequent sections of the paper. 
+
 
 ### AFINN Lexicon
-The first lexicon used for sentiment analysis will be the very popular AFINN lexicon  (Årup Nielsen 2011), which contains 2477 words coded between -5 and +5. The negative polarity represents words with a negative contextual meaning while the positive polarity represents the opposite. By looking at the average polarity of the tweets in each country, we see that all of them are coherently below 0, with India tweets using by far the most *positive* words when speaking about corruption, followed by the US, and the UK and South Africa which show really similar levels.     
+The first lexicon used for sentiment analysis will be the very popular AFINN lexicon  (Årup Nielsen 2011), which contains 2477 words coded between -5 and +5. The negative polarity represents words with a negative contextual meaning while the positive polarity represents the opposite. By looking at the average polarity of the tweets in each country, we see that all of them are coherently below 0, indicating that words used in all of the four countries are dominated by negative conceptualizations of the subject. India shows a greater gap with the rest of the countries, presenting the least negative framing of corruption, followed by the United States. The United Kingdom and South Africa present very similar levels of negativeness.   
 
 
 ```{r afinn sentiment package, echo=FALSE, include=TRUE, fig.height=2, fig.width=10, fig.align="center"}
@@ -357,12 +354,16 @@ distinct(sentiment_value, avg_value, .keep_all = TRUE) %>%
 ``` 
      
 ### NRC Word-Emotion Association Lexicon
-To further understand the origin of those divergent levels of *negativity* the NRC Word-Emotion Association Lexicon (Saif M. Mohammad,Peter D. Turney, 2013) will be used,  where a set of English words are related to 8 basic emotions (anger, fear, anticipation, trust, surprise, sadness, joy, and disgust). (Add further information about how this lexicon was generated). Tables 5 to 8 (see annex 2) show the highest odds ratios for different sentiments of the four analyzed countries. We can see that EEUU, United Kingdom and South Africa  are dominated by sentiments of sadness *anger, fear, disgust* and *surprise*, while in India we find sentiments of *trust* and *joy*. These results do not mean that Indians experience joy or trust when speaking about corruption, (the AFINN lexicon shows that the average sentiment of Indian tweets is in the negative part of the table), but rather that they are closer to those feelings than the rest of the countries. Graph 3 shows the 95% confidence intervals for the log odds ratios. Most of the sentiments prove to be statistically significant, hence it is unlikely that these results are driven solely by chance.  For the American case, the highest odds ratio comes from fellins of *surprise* while the second strongest and significant sentiments are *sadness* and *anger*. For the United KIngdom, the strongest sentiment is *sadness* followed by *anger, fear* and *disgust* . In South Africa, the dominant sentiment is *anger*, although *sadness, anticipation, disgust* and *fear* are also significant. Finally for India, only *trust* and *joy* are significant. Graphs 4 to 7 (see annex 3) show the specific words that are driving the dominant sentiment in each country.
+To further understand the origin of those divergent levels of *negativity* the NRC Word-Emotion Association Lexicon (Saif M. Mohammad,Peter D. Turney, 2013) will be used,  where a set of English words are related to 8 basic emotions (anger, fear, anticipation, trust, surprise, sadness, joy, and disgust). (Add further information about how this lexicon was generated).Graph 3 shows the odds ratios with 95% confidence intervals  for different sentiments in the four analyzed countries. We can see that EEUU, United Kingdom and South Africa  are dominated by sentiments of sadness *anger, fear, disgust* and *surprise*, while in India we find sentiments of *trust* and *joy*. These results do not mean that Indians experience joy or trust when speaking about corruption, (the AFINN lexicon shows that the average sentiment of Indian tweets is in the negative part of the table), but rather that they are closer to those feelings than the rest of the countries. Most of the sentiments prove to be statistically significant, hence it is unlikely that these results are driven solely by chance.  For the American case, the highest odds ratio comes from fellins of *surprise* while the second strongest and significant sentiments are *sadness* and *anger*. For the United KIngdom, the strongest sentiment is *sadness* followed by *anger, fear* and *disgust* .In South Africa, the dominant sentiment is *anger*, although *sadness, anticipation, disgust* and *fear* are also significant. Finally for India, only *trust* and *joy* are significant. Graph 3 shows that EEUU UK and South Africa share very similar  filings when speaking about corruption, although the intensity of those varies. The variability in the group of countries is given by India which presents a totally different picture. These results partially point out to the idea that corruption is schematized in similar ways in EEUU, UK and South Africa. Graphs 4 to 7 in annex 2 display the specific words driving the sentiments of each country.
+
+
+### Sentiment analysis conclusions
 
 
 ```{r Sentiment analysis, echo=FALSE, include=TRUE}
 
 sentiment_counts <- summary_words %>%
+  filter(word != "trump") %>%
   left_join(nrc, by = "word") %>%
   count(country, sentiment) %>%
   pivot_wider(names_from = "country", values_from = "n") %>%
@@ -525,6 +526,7 @@ grid.arrange(log_or_usa_g, log_or_uk_g, log_or_south_africa_g, log_or_india_g,
 
 # Odds ratios for countries (sentiments)
 usa_world__or <- summary_words %>%
+  filter(word != "trump") %>%
   count(word, country) %>%
   pivot_wider(names_from = "country", values_from = "n", values_fill = 0) %>%
   mutate(or = (usa + 0.5) / (sum(usa) - usa + 0.5) / 
@@ -550,6 +552,7 @@ south_africa_world__or <- summary_words %>%
 
 # EEUU
 usa_world__or_words_g_surprise <- usa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(word != "trump") %>%
   filter(sentiment == "surprise") %>%
   mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
   mutate(log_or = log(or)) %>%
@@ -802,55 +805,24 @@ india_world__or_words_g_positive <- india_world__or %>% inner_join(nrc, by = "wo
 
 ```
 
+## Concept Class Analysis
+Concept Class Analysis was first used by Goldberg in 2011 to extract cultural schemas from survey questions and group respondents into classes based on their schemas. Goldberg's approach is not aimed to measure the differences between respondents on specific questions, but rather the way that respondents are schematically different, that is, the extent to which respondents show similarity in the positions they assign between survey items, the way that they share patterns of adjudication. Goldberg developed a new metric called "relationality", which goes from -1 to 1 and measures the extent to which two respondents are schematically different.
 
-```{r CoCA, echo=FALSE, include=FALSE}
-" # Generate sparece matrix
-twitter_sparce_matrix <- dtm_simple_sparse(corruption_tweets_clean$clean_text, corruption_tweets_clean$user_id)
+### Word2vec, Word Movers Distance and Semantic Directions
+Word embeddings refer to a different set of techniques used to transform and map words in a corpus to text into vectors of real numbers. One of the most popular word embedding techniques is Word2vec, which vectorizes words in order to compare the semantic similarity between them using a cosine similarity function; this enables us to obtain measurements of the "semantic distance" between words.
+We can use the Word Embedding Distance function to measure the dissimilarity between two text documents as the minimum amount of distance that the embedded words of one document need to "travel" to reach the embedded words of another document (Kusner, 2013). This is represented in Figure 2. We can see that the semantic distance between D1 and D0 (1.07) is significantly smaller than the distance between D2 and D0 (1.63), as the sentences Obama speaks to the media in Illinois. and The President greets the press in Chicago, which carry similar meanings. We can apply semantic distance techniques to documents of any size, we could for example measure the semantic distance of a set of extremely long documents to a single word.
 
-# Load word embeddings 
-word_embeddings <- readRDS("~/Documents/projects/r-projects/cultural-schemas/ft.cc.en.300D.2M.Rds")
-
-
-# build juxtaposed pairs for each semantic directions
-authority <- data.frame(additions  = c("symetric", "vertical"),
-                       substracts = c("asymetric", "horizontal") )
-
-ideological <- data.frame(additions  = c("collaboration", "endorsement"),
-                       substracts = c("competition", "condemnation") )
-
-time <- data.frame(additions  = c("inmediate"),
-                       substracts = c("eventually") )
-
-personal <- data.frame(additions  = c("trust"),
-                    substracts = c("distrust") )
-
-type <- data.frame(additions  = c("monetary"),
-                       substracts = c("nonfinancial") )
-
-space <- data.frame(additions  = c("center"),
-                   substracts = c("periphery") )
-
-# get the vectors for each direction
-sd.01 <- get_direction(authority, word_embeddings)
-sd.02 <- get_direction(ideological, word_embeddings)
-sd.03 <- get_direction(time, word_embeddings)
-sd.04 <- get_direction(personal, word_embeddings)
-sd.05 <- get_direction(type, word_embeddings)
-sd.06 <- get_direction(space, word_embeddings)
-
-# row bind each direction
-sem.dirs <- rbind(sd.01, sd.02, sd.03, sd.04, sd.05, sd.06)
-
-classes <- CMDist::CoCA(twitter_sparce_matrix, wv = word_embeddings, directions = sem.dirs)
+![Semantic Distance between words. Source: Kunser et all.](obama-speaks.png)
 
 
-plot(classes, module=1)
-plot(classes, module=2)
-plot(classes, module=3)
-plot(classes, module=4)
-"
+Semantic directions refer to an approach that uses word embedding to determine if a concept or text is biased towards one of two opposite semantic poles (Mikolov et al. in 2013). To illustrate this, we can take as an example the work of Bolukbasi et al, (2016), which aimed to measure gender bias in texts. To do so, Bolukbasi starts by defining two poles, men and women, and subtracting its corresponding vectors one from the other, Vector (woman) – Vector (Man), the result is a relational vector that points towards woman and away from man. Once the relational vector is defined, one can compare its cosine similarity to specific concepts or body of text, to measure gender bias. If both vectors point in the same direction, the cosine similarity will be close to 0, indicating that the text is neither biased to any direction, if the cosine is close to 1 the text would be strongly biased towards women and if is close to -1 it would be strongly biased towards men. Figure 3 represents these situations.    
 
-```
+We can use semantic directions to measure the engagement of a body of texts with different relational vectors constructed with dichotomous polarized concepts. Once the cosine similarities from all our texts have been measured, we can apply Relational Class Analysis to group them into cultural schemas. Instead of having a set of discrete values from survey respondents, we will have a continuous scale from -1 to 1 on different cultural dimensions for each text, but the principles underlying.
+
+![Different degrees of cosine similarity. Source: http://deepai.org ](cosine-similarity.png)
+    
+    
+
 
 
 #### Annex 1
@@ -864,8 +836,7 @@ t4
 
 
 
-#### Annex 2
-```{r Anex 2, echo=FALSE, include=TRUE}
+```{r Anex 2, echo=FALSE, include=FALSE}
 t5 
 t6
 t7
@@ -874,7 +845,7 @@ t8
 ```
 
 
-#### Annex 3
+#### Annex 2
 ```{r Anex 3, echo=FALSE, include=TRUE, fig.height=2.5, fig.width=8, fig.align="center"}
 grid.arrange(usa_world__or_words_g_surprise, usa_world__or_words_g_sadness, usa_world__or_words_g_anger, nrow = 1,
               top = ("Graph 4: Words driving American sentiments"))
@@ -885,6 +856,15 @@ grid.arrange(south_africa_world__or_words_g_anger, south_africa_world__or_words_
               top = ("Graph 6: Words driving South African sentiments"))
 grid.arrange(india_world__or_words_g_trust, india_world__or_words_g_joy, nrow = 1,
               top = ("Graph 7: Words driving Indian sentiments"))
+
+
+``` 
+
+
+
+
+```{r Test, echo=FALSE, include=TRUE}
+
 
 
 ``` 
