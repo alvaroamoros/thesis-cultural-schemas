@@ -123,6 +123,8 @@ corruption_tweets_india_merged_filtered <- corruption_tweets_india_merged_filter
 corruption_tweets_clean <- rbind(corruption_tweets_uk_merged_filtered, corruption_tweets_south_africa_filtered, 
                                  corruption_tweets_usa_merged_filtered, corruption_tweets_india_merged_filtered)
 
+write_csv(corruption_tweets_clean, "~/Documents/projects/r-projects/thesis-cultural-schemas/corruption_tweets_clean.csv")
+
 # Clean text
 corruption_tweets_clean <- corruption_tweets_clean %>%
   dplyr::mutate(
