@@ -899,8 +899,6 @@ The findings of this paper point to the divergence in cultural schemas of corrup
 Regarding the limitations of the paper, the possibility of establishing significant correlations between schematic distributions and national levels of corruption could not be accomplished  due to the small sample of countries in the sample. This could be solved by having a greater amount of RAM memory available for the analysis, as well as access to twitter's premump API, as more countries could be added to the analys. Besides these limitations, the schematic classes yielded by the CoCA classification are very counterintuitive to analyse, which intrinsically limits the explanatory capabilities of this approach.    
 With these problems in mind, the results have shown that in most cultural schemes of corruption there is a strong connection between morality, legality and democracy (classes 1, 2 and 3), indicating that for most individuals there is no contradiction between the officially established channels of exchange and their personal culture. Class 4, which represents around 1 / 4 the sample, shows that for a significant part of individuals there is an absolute disconnection between morality and legality. This supports the idea of the existence of alternative but legitim channels of exchange that compete fit institutionally sanctioned channels.    
 
-
-
 #### Annex 1
 ```{r Anex 1, echo=FALSE, include=TRUE}
 t1
