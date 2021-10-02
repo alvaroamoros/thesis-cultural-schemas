@@ -1,0 +1,1034 @@
+---
+title: "Cultural schemas of corruption: a text analysis aproach"
+author: "Álvaro Amorós Rodíguez"
+date: "15/6/2021"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+
+---
+
+
+```{r SETUP, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Libraries
+library(usethis)
+library(devtools)
+library(rtweet)
+library(tidyverse)
+library(dplyr)
+library(CMDist)
+library(text2vec)
+library(word2vec)
+library(tools)
+library(reticulate)
+library(gridExtra)
+library(ggpubr)
+library(corclass)
+library(reshape2)
+library(qgraph)
+library(ggcorrplot)
+library(RCA)
+library(sf)
+library(giscoR)
+library(tidytext)
+library(textrecipes)
+library(readr)
+library(tidytext)
+library(textdata)
+library(broom)
+library(knitr)
+library(xtable)
+
+
+```
+
+
+
+```{r global_options, R.options=knitr::opts_chunk$set(warning=FALSE, message=FALSE), echo=FALSE, include=FALSE}
+
+# FUNCTIONS
+
+
+# Function for generating a DTM sparece matrix
+dtm_simple_sparse  <- function(text, doc_id){
+  tokns <- strsplit(text, " ") 
+  vects <- unlist(tokns)
+  vocab <- sort(unique(vects))
+  lens <- sapply(tokns, length)
+  dtm <- Matrix::sparseMatrix(i=rep(seq_along(lens), lens), 
+                              j=match(vects, vocab), x=1L,
+                              dimnames = list(doc_id, vocab))
+}
+
+# RAW DATA
+
+# USA 
+corruption_tweets_usa <- read_csv("corruption_tweets_usa.csv")
+corruption_tweets_usa_2 <- read_csv("corruption_tweets_usa_2.csv")
+corruption_tweets_usa_merged <- rbind(corruption_tweets_usa, corruption_tweets_usa_2)
+corruption_tweets_usa_merged_filtered <- distinct(corruption_tweets_usa_merged, user_id, .keep_all = TRUE)
+
+set.seed(1, sample.kind="Rounding")
+corruption_tweets_usa_merged_filtered <- corruption_tweets_usa_merged_filtered[sample(nrow(corruption_tweets_usa_merged_filtered), 4444), ]
+rm(corruption_tweets_usa, corruption_tweets_usa_2, corruption_tweets_usa_merged)
+
+# UK
+corruption_tweets_uk <- read_csv("corruption_tweets_uk.csv")
+corruption_tweets_uk_2 <- read_csv("corruption_tweets_uk_2.csv")
+corruption_tweets_uk_merged <- rbind(corruption_tweets_uk, corruption_tweets_uk_2)
+corruption_tweets_uk_merged_filtered <- distinct(corruption_tweets_uk_merged, user_id, .keep_all = TRUE)
+
+set.seed(1, sample.kind="Rounding")
+corruption_tweets_uk_merged_filtered <- corruption_tweets_uk_merged_filtered[sample(nrow(corruption_tweets_uk_merged_filtered), 4444), ]
+rm(corruption_tweets_uk, corruption_tweets_uk_2, corruption_tweets_uk_merged)
+
+# India
+# Load data sets
+corruption_tweets_india <- read_csv("corruption_tweets_india.csv")
+corruption_tweets_india_2 <- read_csv("corruption_tweets_india_2.csv")
+corruption_tweets_india_merged <- rbind(corruption_tweets_india, corruption_tweets_india_2)
+corruption_tweets_india_merged_filtered <- distinct(corruption_tweets_india_merged, user_id, .keep_all = TRUE)
+
+# Select random sample and clean
+set.seed(1, sample.kind="Rounding")
+corruption_tweets_india_merged_filtered <- corruption_tweets_india_merged_filtered[sample(nrow(corruption_tweets_india_merged_filtered), 4444), ]
+rm(corruption_tweets_india, corruption_tweets_india_2, corruption_tweets_india_merged)
+
+# South Africa
+corruption_tweets_south_africa <- read_csv("corruption_tweets_south_africa.csv")
+corruption_tweets_south_africa_2 <- read_csv("corruption_tweets_south_africa_2.csv")
+corruption_tweets_south_africa_merged <- rbind(corruption_tweets_south_africa, corruption_tweets_south_africa_2)
+corruption_tweets_south_africa_filtered <- distinct(corruption_tweets_south_africa_merged, user_id, .keep_all = TRUE)
+
+set.seed(1, sample.kind="Rounding")
+corruption_tweets_south_africa_filtered <- corruption_tweets_south_africa_filtered[sample(nrow(corruption_tweets_south_africa_filtered), 4444), ]
+rm(corruption_tweets_south_africa, corruption_tweets_south_africa_2, corruption_tweets_south_africa_merged)
+
+
+# Add contry vars
+corruption_tweets_uk_merged_filtered <- corruption_tweets_uk_merged_filtered %>%
+  mutate(country = "uk")
+corruption_tweets_south_africa_filtered <- corruption_tweets_south_africa_filtered %>%
+  mutate(country = "south africa")
+corruption_tweets_usa_merged_filtered <- corruption_tweets_usa_merged_filtered %>%
+  mutate(country = "usa")
+corruption_tweets_india_merged_filtered <- corruption_tweets_india_merged_filtered %>%
+  mutate(country = "india")
+
+# Append all 3 dasets
+corruption_tweets_clean <- rbind(corruption_tweets_uk_merged_filtered, corruption_tweets_south_africa_filtered, 
+                                 corruption_tweets_usa_merged_filtered, corruption_tweets_india_merged_filtered)
+
+write_csv(corruption_tweets_clean, "~/Documents/projects/r-projects/thesis-cultural-schemas/corruption_tweets_clean.csv")
+
+# Clean text
+corruption_tweets_clean <- corruption_tweets_clean %>%
+  dplyr::mutate(
+    clean_text = tolower(text),
+    clean_text = gsub("&amp", "", clean_text),
+    clean_text = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", clean_text),
+    clean_text = gsub("@\\w+", "", clean_text),
+    clean_text = gsub("[[:punct:]]", "", clean_text),
+    clean_text = gsub("[[:digit:]]", "", clean_text),
+    clean_text = gsub("http\\w+", "", clean_text),
+    clean_text = gsub("[ \t]{2,}", "", clean_text),
+    clean_text = gsub("^\\s+|\\s+$", "", clean_text),
+    clean_text = gsub(" ?(f|ht)tp(s?)://(.*)[.][a-z]+", "", clean_text))
+corruption_tweets_clean <- corruption_tweets_clean %>%
+  dplyr::mutate(
+    clean_text = str_replace_all(clean_text," "," "),
+    clean_text = str_replace(clean_text,"RT @[a-z,A-Z]*: ",""),
+    clean_text = str_replace_all(clean_text,"#[a-z,A-Z]*",""),
+    clean_text = str_replace_all(clean_text,"@[a-z,A-Z]*",""))
+
+
+# Create a data set with all the words as rows
+summary_words <- corruption_tweets_clean %>%
+  unnest_tokens(word, clean_text, token = "words") 
+
+# Clear stop words
+summary_words <- summary_words %>%
+  filter(!word %in% stop_words$word)
+
+# Dummies for countries
+summary_words <- summary_words %>%
+  mutate(uk_dummie = ifelse(country == "uk", "uk_yes", "uk_no"))
+
+summary_words <- summary_words %>%
+  mutate(usa_dummie = ifelse(country == "usa", "usa_yes", "usa_no"))
+
+summary_words <- summary_words %>%
+  mutate(south_africa_dummie = ifelse(country == "south africa", "south_africa_yes", "south_africa_no"))
+
+summary_words <- summary_words %>%
+  mutate(india_dummie = ifelse(country == "india", "india_yes", "india_no"))
+
+# Odds rations UK
+corruption_or_uk <- summary_words %>% 
+  count(word, uk_dummie) %>%
+  pivot_wider(names_from = "uk_dummie", values_from = "n", values_fill = 0) %>%
+  mutate(or_uk = (uk_yes + 0.5) / (sum(uk_yes) - uk_yes + 0.5) / 
+           ( (uk_no + 0.5) / (sum(uk_no) - uk_no + 0.5)))
+
+# Odds rations USA
+corruption_or_usa <- summary_words %>% 
+  count(word, usa_dummie) %>%
+  pivot_wider(names_from = "usa_dummie", values_from = "n", values_fill = 0) %>%
+  mutate(or_usa = (usa_yes + 0.5) / (sum(usa_yes) - usa_yes + 0.5) / 
+           ( (usa_no + 0.5) / (sum(usa_no) - usa_no + 0.5)))
+
+# Odds rations South Africa
+corruption_or_south_africa <- summary_words %>% 
+  count(word, south_africa_dummie) %>%
+  pivot_wider(names_from = "south_africa_dummie", values_from = "n", values_fill = 0) %>%
+  mutate(or_south_africa = (south_africa_yes + 0.5) / (sum(south_africa_yes) - south_africa_yes + 0.5) / 
+           ( (south_africa_no + 0.5) / (sum(south_africa_no) - south_africa_no + 0.5)))
+
+# Odds rations India
+corruption_or_india <- summary_words %>% 
+  count(word, india_dummie) %>%
+  pivot_wider(names_from = "india_dummie", values_from = "n", values_fill = 0) %>%
+  mutate(or_india = (india_yes + 0.5) / (sum(india_yes) - india_yes + 0.5) / 
+           ((india_no + 0.5) / (sum(india_no) - india_no + 0.5)))
+
+# Sentiment analysis data
+nrc <- get_sentiments("nrc") %>%
+  select(word, sentiment)
+
+```
+
+
+
+
+# Abstract
+
+The objective of this research project is to apply a set of statistical techniques to extract cultural schemas from written text, with the aim of further understanding the phenomena of political corruption from a cultural perspective. Hence, the first part of this paper will consist of a revision of some of the theories and empirical findings in the fields of political corruption, cultural schemas, and cultural studies, and the construction of the main hypothesis and theoretical expectations. The second part will include the statistical analysis as well as explanations about the specific methodologies applied. This second part will be divided in two subsections of *sentiment analysis* and *Correlation Class Analysis*. Finally, the conclusion will summarise the findings and outline some of the contributions and potential paths to follow in further research in the field using text analysis.
+
+# Introduction
+
+
+Persistent high levels of corruption have been an increasing problem in many developing countries. Corruption has been identified as a serious problem, not only for economic development, but also for democracy itself, as it erodes social trust in public institutions (Moreno,2002; Getz, K. A., & Volkema, R. J., 2001). Most studies on the subject have focused on the economic and political causes of corruption, while cultural explanations have been scarcer. This seems to be odd given the fact that cultural values have a strong effect on a wide arrange of political and economic outcomes around the world (Husted, 1999). Policies implemented to fight corruption have presented divergent levels of success. Some authors have pointed out the lack of culture-sensible design when explaining the poor results of many of these policies (Husted, 2002).    
+
+When approaching the subject of political corruption from a cultural perspective, the most common strategy has been to rely on the work of Hofstede (Hofstede 1976, Hofstede 1989, Hofstede 1991), and his work-related cultural dimensions, to understand cross-country variation in levels of corruption (Getz, K. A., & Volkema, R. J., 2001; Park, 2003; Husted, 1999; Seleim, Ahmed & Bontis, Nick, 2009). The second most common approach has been to use the value dimensions identified by Inglehart (Wayne Sandholtz & Rein Taagepera, 2005). Although these authors offer comprehensive, well developed and proven frameworks, they may not be the optimal approach to further understand the role of culture in corruption.  
+These approaches have been especially attractive to quantitative researchers due to the availability of large cross-country datasets adapted to their theories. One of the main objectives  of this project is to overcome these limitations imposed by data availability, and explore new and flexible methods to gather and analyze information. These alternative methods have the potential to open the subfield of political corruption to new approaches and theories that are not well suited to be tested with the traditional sources of data available.   
+
+On the theoretical part, the main assumption is that the relevant aspects of culture that influence corruption are not explicitly manifested by individuals. These relevant cultural elements are not symbolically mediated, but rather exist as specific cognitieve configurations, constructed by individuals through a lifecourse of interactions with different institutions, and result in a set of different cultural schemas, which are shared by individuals with similar life experiences. This approach towards culture justifies the necessity of searching for alternative sources of data, as surveys are unlikely to capture non-explicit cultural configurations. The most organic data source in which to search for these non explicit cultural elements is natural language, as individuals will manifest cultural schemas in an unconscious way. The extraction of these *“hidden”* cultural underpinnings from individuals will also require alternative analytical methods, as the classical regressions analysis is too limited when analyzing natural language. Hence I will rely on the analytical approach recently proposed by Taylor and Stoltz (2020), *Concept Class Analysis*, in which a set of algorithms are applied in order to classify texts.  
+ 
+
+# Theory   
+
+## Normative definitions of corruption
+
+Authors like Johnson (1996) and Heidenheimer (2001) have produced extensive bibliographic works in which they gather, classify, and analyse a broad spectrum of definitions and conceptualizations of political corruption, from the classical thinkers of ancient Greece to the modern behaviourist and neoclassical authors. One of the most relevant definitions gathered by those authors include the one  given by Nye in 1967, who defines corruption as a behaviour that deviates from the formal duties of a public role because of private-regarding, pecuniary or status gains. In this definition, we find three key elements, a public official, a violated legal mandate, and a private gain. This definition has the advantage of being quite precise, but is limited in scope, due to its legalistic and individual focus. In the same line, but with an even more restricted economic focus, we have the definition provided by Heidenheimer (2001), who defines corruption as a situation in which a civil servant regards his office as a business, the income of which we will try to maximize. Fredric (1966) adds a new element by stating that corruption happens when a power holder acts in self-benefit in a way that generates damage to the public and its interests. Still from a behaviourist perspective, but with a different scope, we have Klitagaard (1988) and his Principal-agent-client schema, which in essence state that corruption occurs when an agent betrays the principal's interest in the pursuit of her own.   
+
+The excessive legalistic nature of the previous definitions has been addressed by the neoclassical thinkers, who recover the tradition of classical authors like Plato or Aristotle, which understood corruption as a moral matter. Gibbson (1985) lists a set of situations that he considers as an abuse of office, hence, intrinsically corrupt, those are Nepotism, Patronage, and Conflict of interests. According to Gibson, these actions, even without being illegal, are considered unethical and widely condemned. With a similar scope, we have the definition of Schmidhauser (1976), who defined corruption as behavior that 'violates and undermines the norms of the system of public order which is deemed indispensable for the maintenance of political democracy'. Tarkowski (1989) defines corruption as those activities regarded by society as illegitimate or seen by the power elite as contradictory to the logic of the system. Thomson (1993) on the other hand defines mediated corruption as those actions which produce harm to the democratic process because the corrupt acts are mediated by the political process. All these definitions have a significantly broader conceptualization of corruption than the more behaviorist and legalist approaches, but they expose important concepts, like order, ethics, legitimacy, or political process, that can be useful for a text analysis approach.   
+
+## Analytical approaches to corruption   
+
+David Jancis (2014) summarizes the most common approaches towards corruption in the literature, grouping all of them in  three families. The first group of approaches treats corruption as a utility maximization problem. This perspective analyzes the microlevel interaction between actors as a strict market exchange in which each individual tries to maximize its utility. The principal agent dilemma is a common case in which the agent treasons the principals trust in order to pursue its own benefits. The main explanation to corrupt behaviors would be poor structuralization of benefits, which pushes agents to search for other ways of compensation. The bad apples approach on the other hand, assumes that most employees are not corrupt, but certain individuals acting as outliers and can engage in corrupt behaviour due to personal qualities. These micro-level approaches are not really interesting for this project as its objective is to understand corruption as a macro cultural fenomena. A second set of approaches understands corruption as a product of social constraints. This includes material approaches which focus on structural causes such as economic inequality or institutional settings, and cultural approaches which adopt a classical value centered approach in which universal social norms will determine the willingness of actors to engage in corrupt behavior.         
+
+The last set of approaches presented by Jancis, are the so called relational approaches, in which corruption is not seen as a pathology, but rather as an specific form of social exchange that happens outside official institutional channels. According to relational approaches, corruption does not exist as an isolated interaction between individuals, but it rather materializes itself as a broad network of social exchanges. This approach is very well suited for cultural analysis as it shifts the attention from the exchanges themselves, towards the channels in which those exchanges happen. The theorization of corruption as a strict social phenomena highlights the relevance of cultural elements in structurizing corrupt exchanges.  Granovetter (2004) argues that these alternative exchange networks are a social mechanism through which specific groups challenge the dominant exchange channels. Members who participate in this alternative networks do not see themselves as explicitly corrupt, but they rather justify the use of those channels through a set of ideological configurations, which act as *neutralization principles*. Some *neutralization principles* refer to  forms of group solidarity as class or ethnic solidarity, while others will directly point out to the immoral or unjust nature of official exchange channels.    
+
+Corruption from a relational perspective is not restricted to economic actions, as it includes any type of exchange as long as it happens through an unofficial network. Privileged information or access to certain institutions are examples of some of the commodities that can circulate in corrupt networks. Furthermore, a specific corrupt exchange does not require immediate compensation, or in some cases, it does not even require any specific compensation from the receiving party, but rather a general expectation that one will be compensated in the future by a third member of the network.  While Granovetter points out to the necessity of ideological *neutralization principles*  for alternative exchanges networks to function, he does not present any further theoretical or empirical development on the specific cultural elements in which these exchanges are embedded. But having in mind the complex non-economic, non-immediate, and non-bilateral nature of exchanges in relational corrupt networks, it is coherent to assume that they will necessarily require a very specific set of cultural configurations.   
+
+
+
+## Culture of corruption
+
+All normative and analytical approaches to corruption share the fundamental fact that corruption is a deviation of dominan moral or legal norms. Although what is considered corruption varies from one approach to the other, and presumably will vary from one community to the other, corrupt behaviour will always represent a transgression of what is explicitly culturally accepted. Hence, to understand corruption from a cultural perspective, one can not look at explicit forms of culture, as corruption will be by definition, never encouraged through formal culture. Even so, certain communities have a greater number of individuals which are willing to engage in corrupt behaviors, and these transgressions from formal cultural norms can not be explained exclusively through specific material conditions, specially in contexts in which they are widespread and spam over long periods of time. Understanding corruption by using classic Weberian or Parsonian means-end value centered approaches, which in essence assumes that action is directed towards explicit ends provided by culture, seems not the best way to address this issue. A classical value-centered approach would require the assumption that there are certain cultures of corruption that direct the action of specific groups towards corrupt behaviour.
+
+Omar Lizardos (2016) distinction between personal culture in its declarative and non declarative forms addresses this issue and enables us to understand the coexistence of contradictory forms of culture. According to Lizardo there are two pathways of enculturation, which lead on one hand, to declarative culture, which is explicit, symbolically mediated and acquired via a small number of exposures. Persons are aware when using this explicit culture. On the other hand, nondeclarative culture is learned through a slow process of implicit, durable, cognitive-emotive associations, through consistent long-term exposure to specific patterns of behaviour. Nondeclarative culture is not expressed through explicit symbolic elements. Lizardo defines it as: *“stored in the form of complex multimodal and multidimensional associations between a number of symbolic elements each of which has a close link to experience”*. Personal declarative and nondeclarative forms of culture overlap. But nondeclarative forms of culture do not require any explicit semating expression, they can be subsumed in *the way the things are*.  This project will focus exclusively on nondeclarative cultural forms, as they have the potential to structure corrupt networks of exchange. Due to their non-official and alternative nature, it is unlikely that corrupt networks will be structured through explicit declarative cultural forms. At the same time, the complexity of the interactions and exchanges that develop in corrupt networks, requires them to be embedded in specific cultural forms, which will enable individuals to navigate their complex institutions. 
+
+In order to capture and analyze the specific cultural configurations necessary for individuals to be able to engage in exchanges in corrupt relational networks, I will rely on the concept of *cultural schema*. Wood et al. (2018) define cultural schemas as a *"flexible memory structure, automatically acquired and updated from patterned activity, and composed of multinomial neural associations"*. In other words, cultural schemas are cognitive networks that people acquire unconsciously over time to assess situations and objects. There is a broad literature about cultural schemas and their characteristics, but for this project, two are specifically interesting. First, schemas are relational, they are recognition procedures that emerge from association links (Goldberg, Amir. 2011). Secondly, schemas are shared by people with similar life stories, and unevenly distributed among a specific community (Taylor and Stoltz, 2020).   Cultural schemas share many of the traits of nondeclarative culture, as defined by Lizardo, as both  are implicitly shared relational structures of meaning. Cultural schemas will serve as a bridge between theory and methodology and will be the main analytical tool used in this project to try to differentiate different cultural configurations of corruption.
+
+## Thesis   
+
+The main argument of this project is that corruption can not be analyzed as a set of singular interactions between individuals, but rather as a social process of exchange that develops inside complex networks. Individuals participating in corrupt networks will be suited with specific cultural schemas, which are acquired through an automatic learning process by interacting with corrupt institutions. Hence, individuals participating in corrupt networks will have different cultural schemas when compared to individuals that only participate in official exchange channels. I extrapolate this to the cross country level to build the main hypothesis of his research project, which is that *there is a positive relation between the number of individuals sharing cultural schemas fit to navigate corrupt institutions and the national level of corruption*
+
+With regard to what can be expected to be a cultural schema fit to engage in corrupt exchange networks, I establish a set of assumptions based upon the previous literature on corruption. The first is that the most salient cultural trait of individuals that participate in corrupt networks will be the contradiction between legal and moral dimensions. Dominant social norms (what in general terms constitutes *legality*) will not be seen as morally acceptable, hence providing an ideological justification for individuals to participate in alternative exchanges. Participants in a corrupt exchange will also regard corruption as a social and public phenomena, as their cultural schemas implicitly frame the exchanges inside a social network. On the contrary, individuals which do not participate in corrupt exchange networks will not show any contradiction between morality and legality. At the same time, they will regard corruption as a private business which is restricted to individual interactions, as they will not have adquiere the cultural elements necessary to schematize corruption as a social process of exchange developed inside alternative networks.   
+
+   
+## Data
+
+To obtain cultural schemas from different individuals in different countries I will rely on the analysis of natural language. Survey data could be used as well, although I consider it is less likely to capture cultural schemas, due to their nondeclarative nature. Large cross country quantitative surveys intrinsically limit the responses that individuals can provide. Furthermore, it is coherent to assume that the inorganic and official nature of surveys will push respondents to rely on declarative culture to answer different questions, as nondeclarative cultural elements are activated in automatic and unconscious ways when facing specific institutions (Granovetter, 2014). 
+
+There are a potentially infinite amount of sources of natural language that could be used for this analysis, but this project will be restricted to the analysis of natural language data retrieved from twitter in the form of written text. The selection of this source is justified mainly due to technical criterias, as twitter facilitates the extraction and treatment of data from a massive number of users. Extracting large amounts of text from different users from other sources, like newspapers for example, would be significantly more complicated. We can also assume that in twitter we will find a great diversity among users. Although some social, economic or ideological groups will be underrepresented in twitter, it probably still provides a more diverse sample of society than other commonly used sources of data in text analysis (like registers of parliamentary interventions of representatives or published books).
+
+Twitter also presents some limitations, especially if one is not willing to pay money in order to extract data. The free API provided by the platform enables users to extract 500.000 tweets per month, although, due to the limited memory of my computer,  the number of tweets analyzed will be restricted to around 20.000. A second limitation comes from the country location options, which are only available in the premium API, although this problem can be partially overcome by manually introducing the geographical coordinates from which tweets should be extracted, sadly this option does not work properly with all countries, restricting the options to those countries in which tweets have coordinate information. A last limitation is imposed by the free API by limiting the extraction of tweets to the last 30 days. When trying to extract structural schemas, this time limitation imposes a strong bias towards the data, as the results could be driven by recent time trends. Besides that, it further restricts the countries selections as only those that have a high tweeter traffic will yield enough data of corruption in 30 days. 
+
+Regarding the specific tweets extracted, they will be limited to tweets which include the word *corruption* in them. This restriction is justified because nondeclarative cultural forms are activated when interacting with the specific institutions through which they have been acquired (Lizardo 2016). As this project is interested in understanding the nondeclarative aspects of cultural elements linked to the participation of individuals in corrupt exchange networks, it restricts the analysis to text explicitly speaking about corruption. If a more general selection of tweets would be analyzed, many nondeclarative cultural elements would flourish, many of which would be totally unrelated to exchange networks, as individuals accumulate a great number of nondeclarative cultural elements, which are only activated in specific contexts (Lizardo).
+
+With these limitations in mid, four english speaking countries, from frou different continents and with significantly different levels of corruption according to Transparency Now haven been chosen to extract data from.  In order to avoid overrepresentation of very active users, only one tweet per user will be permitted. The data was mined through several extractions conducted between the 1st and the 15th of September of 2021. 17.776 tweets which include the word *corruption*  have been extracted from EEUU, United Kingdom, South Africa, and India. The final dataset will consist of 4.444 tweets per country and 219.316 words in total. Graph 1 shows the *Corruption Perception Index 2020* from Transparency International for each country. The CPI measures how corrupt a public sector of a country is perceived based on the assessments of experts in the field and of business executives. 
+
+
+
+```{r Corruption levels by country,  echo=FALSE, include=TRUE, fig.height=2, fig.width=10, fig.align="center"}
+countries <- c("United Kingdom", "United States", "South Africa", "India")
+index <- c(77, 67, 44, 40)
+countries_index <- as_tibble(data.frame(countries, index))
+
+countries_index %>%
+  ggplot(aes(y = index, x = reorder(countries, index))) +
+  geom_col() + 
+  coord_flip() +
+  ggtitle("Graph 1: Perception of corruption by country") +
+  xlab("") +
+  ylab("Transparency International Index") +
+  theme_minimal()
+
+
+```
+# Analysis
+
+## Descriptive statistics    
+Tables one to four displays the five words with the highest odds ratio for each of the four countries (see annex 1). The odds ratios are calculated as the ratio of the odds of a word being present in country *A* and the ratio of odds of the same word being present in any of the other countries. To avoid very uncommon words with extremely low appearances but very high odds ratios, some restrictions have been applied; each word has to appear at least 250 times in the general dataset, at least 150 times in the dataset of the specific country in question, and 50 times in the remaining three datasets.    
+
+The first thing that stands out in the table is the low odds ratios obtained for EEUU, with only two words having rations greater than 1. The United Kingdom has greater rations, which stand between 4.7 and 1.2. South African ratios are between 5.9 and 1.4 and finally India has the highest ratios, between 9.6 and 1.8. These differences in ratios point out to the semantic specificity when framing corruption in each country, and are probably due to the cultural distance of one country to the other.  For the EEUU the highest odds ratios come from the words *time,  people,  money, government* and *country*. These seem pretty generic words in the context of corruption and do not point to any specific trend. In the case of the UK we find *lies, incompetence, police, government* and *time*. Here the word *money* is missing, and *lies* and *incompetence* point out to a non monetary form of corruption, which could be related to the corruption of the democratic process. In South Africa we find *fighting, president country, people* and *money*. The most salient word there is *fighting* with an odds ratio of 6, pointing out the confrontational nature regarding corruption issues in the country. Finally India has the most singular set of words with *free, society, true, world* and *system* having the highest odds ratios. Those words seem to point to a systemic or structural understanding of corruption. Words like *money* or *government* are missing and in its place we find *society*, and *system*. Although comparing odds ratios of words does not show clear patterns, it provides a first glance of the context of corruption in each country.    
+
+The subsequent analytical sections will be divided in two types of analysis. The first part will consiste in a set of sentiment analysis techniques, and will display exclusively cross country differences. Sentiment analysis is not well suited to extract cultural schemas, but it is useful as a descriptive tool in order to highlight the cross country differences in framing of corruption. It also has the capacity to signal the presence of certain neutralization elements, which should be present among individuals participating in alternative exchange channels, hence being dominant in the countries with the highest levels of corruption like India and South Africa. In the second part the *Concept Class Analysis* approach will be used (Taylor and Stoltz,  2020) in order to classify individual users in function of their *cultural schemas*. Besides classifying individuals according to shared cultural schemas,  CoCA analysis will also highlight the different relevant *dimensions*of those schemas, as well as the network of interactions that exists among dimensions in each schema. CoCA classification will not be conducted at a cross country level, the classification will be done on the whole set of users independently of the country. This will enable us to observe the different distributions of *cultural schemas* among countries and see how the prevalence of certain schemas changes in each country.  
+
+
+
+```{r Five words with the highest odds ratios, echo=FALSE, include=TRUE}
+
+#USA
+t1 <- corruption_or_usa %>% 
+  filter(usa_yes + usa_no > 250 & usa_no > 50 & usa_yes > 150) %>%
+  filter(word != "im",
+         word != "youre",
+         word != "hes",
+         word != "dont",
+         word != "corruption",
+         word != "corrupt") %>%
+  arrange(desc(or_usa))%>% head(5) %>% 
+  knitr::kable(caption = "Highest ratio. EEUU", align = "l", col.names  = c("Word", "World", "EEUU","Odds Ratio"))
+
+# UK
+t2 <- corruption_or_uk %>% 
+  filter(uk_no + uk_yes > 250 & uk_no > 50 & uk_yes > 150) %>%
+  filter(word != "im",
+         word != "youre",
+         word != "isnt",
+         word != "call",
+         word != "dont",
+         word != "corruption",
+         word != "corrupt") %>%
+  arrange(desc(or_uk)) %>% head(5)  %>% 
+  knitr::kable(caption = "Highest ratio. UK", align = "l", col.names  = c("Word", "World", "UK","Odds Ratio"))
+
+# South Africa
+t3 <- corruption_or_south_africa %>% 
+  filter(south_africa_no + south_africa_yes > 250 & south_africa_no > 50 & south_africa_yes > 150) %>%
+  filter(word != "south",
+         word != "matter",
+         word != "dont",
+         word != "corruption",
+         word != "govt",
+         word != "fight",
+         word != "corrupt") %>%
+  arrange(desc(or_south_africa))%>% head(5)  %>% 
+  knitr::kable(caption = "Highest ratio. South Africa", align = "l", col.names  = c("Word", "World", "South Africa","Odds Ratio"))
+
+
+# India
+t4 <- corruption_or_india %>% 
+  filter(india_no + india_yes > 250 & india_no > 50 & india_yes > 150) %>%
+  filter(word != "days",
+         word != "pakistan",
+         word != "govt") %>%
+  arrange(desc(or_india)) %>% head(5)  %>% 
+  knitr::kable(caption = "Highest ratio. India", align = "l", col.names  = c("Word", "World", "India","Odds Ratio"))
+
+
+
+```
+
+## Sentiment analysis
+Sentiment analysis assigns different sentiments with different criterias to words, although this approach only captures explicitly expressed declarations, and does ignore contextual information, as sarcasm for example, when conducted on large data-bases it is useful to gain meaningful insights on the data (Rafael A. Irizarry, 2021). For this research it will enable us to start understanding the different cultural contexts in which corruption is embedded.
+
+
+
+### AFINN Lexicon
+The first lexicon used for sentiment analysis will be the very popular AFINN lexicon  (Årup Nielsen 2011), which contains 2477 words coded between -5 and +5. The negative polarity represents words with a negative contextual meaning while the positive polarity represents the opposite. By looking at the average polarity of the tweets in each country, we see that all of them are coherently below 0, indicating that words used in all of the four countries are dominated by negative conceptualizations of the subject.  India shows a greater gap with the rest of the countries, presenting the least negative framing of corruption, followed by the United States, The United Kingdom and South Africa present very similar levels of negativeness. The closeness of Indian mean sentiments to 0 indicates that Indians are (by average) close to have a neutral feeling towards corruption. This supports the idea that a significant amount of neutralization principles are present in corruption schemas of indians.     
+
+
+```{r afinn sentiment package, echo=FALSE, include=TRUE, fig.height=2, fig.width=10, fig.align="center"}
+afinn <- get_sentiments("afinn") %>%
+  select(word, value)
+
+sentiment_value <- summary_words %>%
+  left_join(afinn, by = "word") 
+
+sentiment_value <- sentiment_value %>%
+  group_by(country) %>%
+  mutate(avg_value = mean(value, na.rm = TRUE)) %>%
+  ungroup()
+
+distinct(sentiment_value, avg_value, .keep_all = TRUE) %>%
+  select(country, avg_value) %>%
+  ggplot(aes(y = avg_value, x = reorder(country, avg_value))) +
+  geom_col() + 
+  coord_flip() +
+  ggtitle("Graph 2: averag value (positive / negative) by country") +
+  xlab("Country") +
+  ylab("Value") +
+  theme_minimal()
+
+
+
+
+``` 
+     
+### NRC Word-Emotion Association Lexicon
+To further understand the origin of those divergent levels of *negativity* the NRC Word-Emotion Association Lexicon (Saif M. Mohammad,Peter D. Turney, 2013) will be used,  where a set of English words are related to 8 basic emotions (anger, fear, anticipation, trust, surprise, sadness, joy, and disgust). .The graph *Log odds ratios for countries*  shows the odds ratios with 95% confidence intervals  for different sentiments in the four analyzed countries. We can see that EEUU, United Kingdom and South Africa  are dominated by sentiments of sadness *anger, fear, disgust* and *surprise*, while in India we find sentiments of *trust* and *joy*. These results do not mean that Indians experience joy or trust when speaking about corruption, (the AFINN lexicon shows that the average sentiment of Indian tweets is in the negative part of the table), but rather that they are closer to those feelings than the rest of the countries. Most of the sentiments prove to be statistically significant, hence it is unlikely that these results are driven solely by chance.  For the American case, the highest odds ratio comes from fellins of *surprise* while the second strongest and significant sentiments are *sadness* and *anger*. For the United Kingdom, the strongest sentiment is *sadness* followed by *anger, fear* and *disgust* .In South Africa, the dominant sentiment is *anger*, although *sadness, anticipation, disgust* and *fear* are also significant. Finally for India, only *trust* and *joy* are significant. Graph 3 shows that EEUU UK and South Africa share very similar filings when speaking about corruption, although the intensity of those varies. The variability in the group of countries is given by India which presents a totally different picture. These results partially point out to the idea that corruption is schematized in similar ways in EEUU, UK and South Africa. India shows again trances of *neutralization principles* as its highest odds ratio comes from feelings of *trust*. South Africa on the other hand, which shares very similar levels of corruption with India according to *Transparency International*, is dominated by confrontational feelings like anger or disgust. Graphs 4 to 7 in annex 2 display the specific words driving the sentiments of each country.     
+
+The results of sentiment analysis show that India is the clear outlier in the group. It has significantly less negative sentiment towards corruption, and only sentiments of *trust* and *joy* obtain positive and significant odds ratios. India presents a strong contrast with the rest of the countries, where dominant feelings are overall more negative, and no trait of *neutralization principles* are found. South Africa on the other hand, which shares high corruption levels with India, presents very similar sentiments to those dominant in EEUU and the United KIngdom. It also shows the highest level of negativity towards corruption. According to the main hypothesis, *neutralization elements* should be present in  cultural schemas dominant in countries with high levels of corruption. This seems to be the case for India, but not for South Africa, which shares levels of negativity and specific sentiments towards corruption with countries with significantly lower levels of corruption like the United Kingdom and EEUU.    
+
+The next section constitutes the main analytical exercise of this project. In it I will further develop the methodological foundations of Concept Class Analysis, before applying the classification algorithm to the general dataset.  I will generate a set of plots corresponding to the internal structure of the different *cultural schemas* found, to evaluate if they fit my main hypothesis. This section also aims to show how CoCA can be applied to real world data, and to underline some of its strengths and limitations.    
+
+
+
+```{r Sentiment analysis, echo=FALSE, include=TRUE}
+
+sentiment_counts <- summary_words %>%
+  filter(word != "trump") %>%
+  left_join(nrc, by = "word") %>%
+  count(country, sentiment) %>%
+  pivot_wider(names_from = "country", values_from = "n") %>%
+  mutate(sentiment = replace_na(sentiment, replace = "none"))
+
+# Odss ratios
+
+# USA
+t5 <- sentiment_counts %>%
+  mutate(usa = usa / (sum(usa) - usa) , 
+         world = c(india + uk + `south africa`) / (sum(c(india + uk + `south africa`)) - c(india + uk + `south africa`)), 
+         or = usa/world) %>%
+  arrange(desc(or)) %>%
+  filter(sentiment != "negative") %>%
+  select(sentiment, usa, world, or) %>%
+  head(5) %>% 
+  knitr::kable(caption = "Sentiments highest ratios. EEUU", align = "l", col.names  = c("Sentiment", "EEUU", "World","Odds Ratio"), digits = 3)
+
+
+# UK
+t6 <- sentiment_counts %>%
+  mutate(uk = uk / (sum(uk) - uk) , 
+         world = c(india + usa + `south africa`) / (sum(c(india + usa + `south africa`)) - c(india + usa + `south africa`)), 
+         or = uk/world) %>%
+  arrange(desc(or)) %>%
+  select(sentiment, uk, world, or) %>%
+  filter(sentiment != "negative") %>%
+  head(5) %>% 
+  knitr::kable(caption = "Sentiments highest ratios. UK", align = "l", col.names  = c("Sentiment", "UK", "World","Odds Ratio"), digits = 3)
+# South Africa
+t7 <- sentiment_counts %>%
+  mutate(`south africa` = `south africa` / (sum(`south africa`) - `south africa`) , 
+         world = c(uk + usa + india) / (sum(c(uk + usa + india)) - c(uk + usa + india)), 
+         or = `south africa`/world) %>%
+  arrange(desc(or)) %>%
+  select(sentiment, `south africa`, world, or) %>%
+  filter(sentiment != "negative") %>%
+  head(5) %>% 
+  knitr::kable(caption = "Sentiments highest ratios. South Africa", align = "l", col.names  = c("Sentiment", "South Africa", "World","Odds Ratio"), digits = 3)
+# India
+t8 <-sentiment_counts %>%
+  mutate(india = india / (sum(india) - india) , 
+         world = c(uk + usa + `south africa`) / (sum(c(uk + usa + `south africa`)) - c(uk + usa + `south africa`)), 
+         or = india/world) %>%
+  arrange(desc(or)) %>%
+  select(sentiment, india, world, or) %>%
+  filter(sentiment != "positive") %>%
+  head(5) %>% 
+  knitr::kable(caption = "Sentiments highest ratios. India", align = "l", col.names  = c("Sentiment", "India", "World","Odds Ratio"), digits = 3)
+
+
+
+
+```
+
+
+```{r Odds ratios and cofidence intervals, echo=FALSE, include=TRUE, fig.height=4, fig.width=10, fig.align="center"}
+# USA
+log_or_usa <- sentiment_counts %>%
+  mutate(log_or = log((usa / (sum(usa) - usa)) / 
+      (c(india + uk + `south africa`) / (sum(c(india + uk + `south africa`)) - c(india + uk + `south africa`)))),
+          se = sqrt(1/usa + 1/(sum(usa) - usa) + 
+                      1/c(india + uk + `south africa`) + 1/(sum(c(india + uk + `south africa`)) - c(india + uk + `south africa`))),
+          conf.low = log_or - qnorm(0.975)*se,
+          conf.high = log_or + qnorm(0.975)*se) %>%
+  arrange(desc(log_or)) %>%
+  head(10)
+
+# UK
+log_or_uk <- sentiment_counts %>%
+  mutate(log_or = log((uk / (sum(uk) - uk)) / 
+      (c(india + usa + `south africa`) / (sum(c(india + usa + `south africa`)) - c(india + usa + `south africa`)))),
+          se = sqrt(1/uk + 1/(sum(uk) - uk) + 
+                      1/c(india + usa + `south africa`) + 1/(sum(c(india + usa + `south africa`)) - c(india + usa + `south africa`))),
+          conf.low = log_or - qnorm(0.975)*se,
+          conf.high = log_or + qnorm(0.975)*se) %>%
+  arrange(desc(log_or)) %>%
+  head(10)
+
+
+# South Africa
+log_or_south_africa <- sentiment_counts %>%
+  mutate(log_or = log((`south africa` / (sum(`south africa`) - `south africa`)) / 
+      (c(india + usa + uk) / (sum(c(india + usa + uk)) - c(india + usa + uk)))),
+          se = sqrt(1/`south africa` + 1/(sum(`south africa`) - `south africa`) + 
+                      1/c(india + usa + uk) + 1/(sum(c(india + usa + uk)) - c(india + usa + uk))),
+          conf.low = log_or - qnorm(0.975)*se,
+          conf.high = log_or + qnorm(0.975)*se) %>%
+  arrange(desc(log_or)) %>%
+  head(10)
+
+# India
+log_or_india <- sentiment_counts %>%
+  mutate(log_or = log((india / (sum(india) - india)) / 
+      (c(uk + usa + `south africa`) / (sum(c(uk + usa + `south africa`)) - c(uk + usa + `south africa`)))),
+          se = sqrt(1/india + 1/(sum(india) - india) + 
+                      1/c(uk + usa + `south africa`) + 1/(sum(c(uk + usa + `south africa`)) - c(uk + usa + `south africa`))),
+          conf.low = log_or - qnorm(0.975)*se,
+          conf.high = log_or + qnorm(0.975)*se) %>%
+  arrange(desc(log_or)) %>%
+  head(10)
+
+
+# Graphs
+log_or_usa_g <- log_or_usa %>%
+  mutate(sentiment = reorder(sentiment, log_or)) %>%
+  filter(sentiment != "negative") %>%
+  filter(sentiment != "positive") %>%
+  ggplot(aes(x = sentiment, ymin = conf.low, ymax = conf.high)) +
+  geom_errorbar() +
+  geom_point(aes(sentiment, log_or)) +
+  ylab("EEUU") +
+  coord_flip() +
+  theme_minimal()
+
+log_or_uk_g <- log_or_uk %>%
+  mutate(sentiment = reorder(sentiment, log_or)) %>%
+  filter(sentiment != "negative") %>%
+  filter(sentiment != "positive") %>%
+  ggplot(aes(x = sentiment, ymin = conf.low, ymax = conf.high)) +
+  geom_errorbar() +
+  geom_point(aes(sentiment, log_or)) +
+  ylab("United Kingdom") +
+  coord_flip() +
+  theme_minimal()
+
+log_or_south_africa_g <- log_or_south_africa %>%
+  mutate(sentiment = reorder(sentiment, log_or)) %>%
+  filter(sentiment != "negative") %>%
+  filter(sentiment != "positive") %>%
+  ggplot(aes(x = sentiment, ymin = conf.low, ymax = conf.high)) +
+  geom_errorbar() +
+  geom_point(aes(sentiment, log_or)) +
+  ylab("South Africa") +
+  coord_flip() +
+  theme_minimal()
+
+log_or_india_g <- log_or_india %>%
+  mutate(sentiment = reorder(sentiment, log_or)) %>%
+  filter(sentiment != "negative") %>%
+  filter(sentiment != "positive") %>%
+  filter(sentiment != "none") %>%
+  ggplot(aes(x = sentiment, ymin = conf.low, ymax = conf.high)) +
+  geom_errorbar() +
+  geom_point(aes(sentiment, log_or)) +
+  ylab("India") +
+  coord_flip() +
+  theme_minimal()
+  
+
+grid.arrange(log_or_usa_g, log_or_uk_g, log_or_south_africa_g, log_or_india_g,
+             top = ("Log odds ratios for countries"))
+
+
+
+```
+
+
+```{r Words driving the sentiment results, echo=FALSE, include=TRUE}
+
+# Odds ratios for countries (sentiments)
+usa_world__or <- summary_words %>%
+  filter(word != "trump") %>%
+  count(word, country) %>%
+  pivot_wider(names_from = "country", values_from = "n", values_fill = 0) %>%
+  mutate(or = (usa + 0.5) / (sum(usa) - usa + 0.5) / 
+           ( (c(india + uk + `south africa`) + 0.5) / (sum(c(india + uk + `south africa`)) - c(india + uk + `south africa`) + 0.5)))
+
+uk_world__or <- summary_words %>%
+  count(word, country) %>%
+  pivot_wider(names_from = "country", values_from = "n", values_fill = 0) %>%
+  mutate(or = (uk + 0.5) / (sum(uk) - uk + 0.5) / 
+           ( (c(india + usa + `south africa`) + 0.5) / (sum(c(india + usa + `south africa`)) - c(india + usa + `south africa`) + 0.5)))
+
+india_world__or <- summary_words %>%
+  count(word, country) %>%
+  pivot_wider(names_from = "country", values_from = "n", values_fill = 0) %>%
+  mutate(or = (india + 0.5) / (sum(india) - india + 0.5) / 
+           ( (c(usa + uk + `south africa`) + 0.5) / (sum(c(usa + uk + `south africa`)) - c(usa + uk + `south africa`) + 0.5)))
+
+south_africa_world__or <- summary_words %>%
+  count(word, country) %>%
+  pivot_wider(names_from = "country", values_from = "n", values_fill = 0) %>%
+  mutate(or = (`south africa` + 0.5) / (sum(`south africa`) - `south africa` + 0.5) / 
+           ( (c(india + uk + usa) + 0.5) / (sum(c(india + uk + usa)) - c(india + uk + usa) + 0.5)))
+
+# EEUU
+usa_world__or_words_g_surprise <- usa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(word != "trump") %>%
+  filter(sentiment == "surprise") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(uk > 10 & abs(log_or)>0) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+usa_world__or_words_g_sadness <- usa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "sadness") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(uk > 10 & abs(log_or)>0) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+usa_world__or_words_g_anger <- usa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "anger") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(uk > 10 & abs(log_or)>0) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+
+
+# United Kingdom
+uk_world__or_words_g_sadness <- uk_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "sadness") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(uk > 10 & abs(log_or)>1) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+uk_world__or_words_g_anger<- uk_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "anger") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(uk > 10 & abs(log_or)>1.1) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+uk_world__or_words_g_fear <- uk_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "fear") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(uk > 10 & abs(log_or)>1.1) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+uk_world__or_words_g_disgust <- uk_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "disgust") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_uk$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(uk > 10 & abs(log_or)>1.1) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+
+
+# South Africa
+south_africa_world__or_words_g_anger <- south_africa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "anger") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_south_africa$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(`south africa` > 10 & abs(log_or)>1.1) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+# South Africa
+south_africa_world__or_words_g_sadness <- south_africa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "sadness") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_south_africa$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(`south africa` > 10 & abs(log_or)>0) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+# South Africa
+south_africa_world__or_words_g_anticipation<- south_africa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "anticipation") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_south_africa$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(`south africa` > 10 & abs(log_or)>0) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+south_africa_world__or_words_g_disgust <- south_africa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "disgust") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_south_africa$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(`south africa` > 10 & abs(log_or)>0) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+south_africa_world__or_words_g_fear <- south_africa_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "fear") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_south_africa$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(`south africa` > 10 & abs(log_or)>0) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+
+# India
+india_world__or_words_g_trust <- india_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "trust") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_india$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(india > 10 & abs(log_or)>1.9) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+india_world__or_words_g_joy <- india_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "joy") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_india$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(india > 10 & abs(log_or)>1.1) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+india_world__or_words_g_positive <- india_world__or %>% inner_join(nrc, by = "word") %>%
+  filter(sentiment == "positive") %>%
+  mutate(sentiment = factor(sentiment, levels = log_or_india$sentiment)) %>%
+  mutate(log_or = log(or)) %>%
+  filter(india > 10 & abs(log_or)>1.9) %>%
+  mutate(word = reorder(word, log_or)) %>%
+  arrange(desc(or)) %>%
+  head(10) %>%
+  ggplot(aes(word, log_or, fill = log_or < 0)) +
+  facet_wrap(~sentiment, scales = "free_x", nrow = 2) + 
+  geom_bar(stat="identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("") +
+  xlab("") +
+  coord_flip()+
+  theme_minimal()
+
+```
+
+
+## Relational Class Analysis   
+
+Relational Class Analysis was first used by Goldberg in 2011 to extract cultural schemas from survey questions and group respondents into classes based on their schemas. Goldberg's approach is not aimed to measure the differences between respondents on specific questions, but rather the way that respondents are schematically different, that is, the extent to which respondents show similarity in the positions they assign between survey items, the way that they share patterns of adjudication. Goldberg developed a new metric called "relationality", which goes from -1 to 1 and measures the extent to which two respondents are schematically different.
+
+
+### Word2vec, Word Movers Distance and Semantic Directions    
+
+
+Word embeddings refer to a different set of techniques used to transform and map words in a corpus to text into vectors of real numbers. One of the most popular word embedding techniques is Word2vec, which vectorizes words in order to compare the semantic similarity between them using a cosine similarity function; this enables us to obtain measurements of the "semantic distance" between words. We can use the Word Embedding Distance function to measure the dissimilarity between two text documents as the minimum amount of distance that the embedded words of one document need to "travel" to reach the embedded words of another document (Kusner, 2013). This is represented in Figure 2. We can see that the semantic distance between D1 and D0 (1.07) is significantly smaller than the distance between D2 and D0 (1.63), as the sentences Obama speaks to the media in Illinois. and The President greets the press in Chicago, which carry similar meanings. We can apply semantic distance techniques to documents of any size, we could for example measure the semantic distance of a set of extremely long documents to a single word.
+
+
+![Semantic Distance between words. Source: Kunser et all.](obama-speaks.png)
+
+
+Semantic directions refer to an approach that uses word embedding to determine if a concept or text is biased towards one of two opposite semantic poles (Mikolov et al. in 2013). To illustrate this, we can take as an example the work of Bolukbasi et al, (2016), which aimed to measure gender bias in texts. To do so, Bolukbasi starts by defining two poles, men and women, and subtracting its corresponding vectors one from the other, Vector (woman) – Vector (Man), the result is a relational vector that points towards woman and away from man. Once the relational vector is defined, one can compare its cosine similarity to specific concepts or body of text, to measure gender bias. If both vectors point in the same direction, the cosine similarity will be close to 0, indicating that the text is neither biased to any direction, if the cosine is close to 1 the text would be strongly biased towards women and if is close to -1 it would be strongly biased towards men. Figure 3 represents these situations.    
+
+![Different degrees of cosine similarity. Source: http://deepai.org ](cosine-similarity.png)
+    
+    
+    
+### Concept Class Analysis
+
+We can use semantic directions to measure the engagement of a body of texts with different relational vectors constructed with dichotomous polarized concepts. Once the cosine similarities from all our texts have been measured, we can apply Relational Class Analysis to group them into cultural schemas. Instead of having a set of discrete values from survey respondents, we will have a continuous scale from -1 to 1 on different cultural dimensions for each text, but the principles underlying.
+
+Concept Class Analysis follows the same principles and methods as RCA, although it is computationally more efficient (Taylor and Stroltz, 2020), so it will be the preferred approach for this paper. A key element in CoCA is defining the dimensions through which our text should be classified.  I will define 8 different dimensions to measure the engagements each tweet in the data set will have. These dimensions will be chosen with the theoretical framework in mind as well as the previous sentiment analysis. Although analytically all 8 dimensions are independent of each other, on the theoretical level they will be grouped in 3 to try to facilitate its interpretation. 
+
+The first three dimensions will consist in substantive elements of corruption and will capture the dimensions of *Legality, Morality* and *Democracy*. The selection of *Legality* and *Morality* is obvious as the main thesis of this paper states that for individuals that participate in corrupt exchange networks there will be a disconnection between those two dimensions. *Democracy* has been also added as the descriptive statistics in Table 2, indicate that in some countries corruption is linked to the political process and could be related to incompetence in the execution of public functions. The second set of dimensions is meant to capture the structural level on which corruption is schematized, if it is a private and individual issue, or rather it is linked to complex social networks. This set will be composed by the dimensions of *Complexity* and *Sphere*. The third and final set of dimensions is the *Ideological*, which is composed by the dimensions *Relation, Behaviour* and *Reaction*. These dimensions should attend for the personal ideological position through which corruption is schematized, as well as capturing neutralization elements. Table One displays the specific words through which the polarities of the dimensions have been defined. All the dimensions have been defined trying to condense the potentially most relevant aspects of corruption from a cultural perspective. More dimensions could be added but that would probably end in  an overfitted model. The classification algorithm returns 4 different CoCa classes with 4487, 4760, 4518, 4011 tweets on each class.      
+
+To try to understand the different connections that build up these schematic classes, I will follow the approach of Taylor & Stoltz (2020) and plot the correlations with a *Fruchterman-Reingold force-directed algorithm*. All the lines present in the plot represent statistically significant Pearson correlations among variables. Straight lines represent positive correlations and dashed lines represent negative ones while darker and thicker lines represent stronger correlations. The algorithm will push strongly correlated variables spatially together while displacing to the margins of the graph the weakly correlated variables.   
+
+
+```{r Dimensions, results='asis', echo=FALSE}
+dimensions <- c("Legality", "Morality", "Democracy", "Complexity", "Sphere", "Relation", "Behaviour", "Reaction")
+positive_pol <- c("legal", "moral", "democratic", "system", "private", "solidarity", "duty", "exoneration")
+negative_pol <- c("ilegal", "amoral", "undemocratic", "individual", "public", "competition", "irresponsibility", "punishment")
+sets <- c("Substantive", "Substantive", "Substantive", "Structural", "Structural", "Ideological", "Ideological", "Ideological")
+
+dimension_table <- as_tibble(data.frame(dimensions, positive_pol, negative_pol, sets))
+
+
+print(xtable(dimension_table, caption = c("Dimensions of corruption")), include.rownames = TRUE)
+
+```
+      
+      
+      
+      
+#### Class 1   
+The first cultural schema is articulated around a cluster of substantive dimensions regarding corruption. The *Morality (1), Legality (2)* and *Democracy (3)* dimensions show strong and positive correlations. The *Complexity (4)* dimension has very weak correlations with these clusters, and does not have a relevant role in  this cultural schema. On the contrary, the *Sphere (5)*  dimension has a strong negative correlation with all the substantive elements of the main cluster. This indicates that for these schematic class amoral, undemocratic and illegal behaviours are related to private acciones. The *Relation (6)* dimensions is also positively related to the main substantive cluster, while negatively associated with *Sphere (5)*, indicating that solidarity is linked to the public dimension. The *Behaviour (7)* dimension follows the same trend, as it is positively related to the main cluster, as well as with the *Relations (6)* dimension and negatively linked to *Sphere (5)*.  Finally the *Reaction (8)* dimension  is virtually irrelevant.    
+In this schema there is no contradiction between substantive dimensions of corruption as issues about legality morality and democracy reinforce each other, at the same time, corruption is seen as an individual behavior that deviates from ideological standards of solidarity and duty. The systemic nature of corruption or the consequences it should carry are almost irrelevant, and are strongly isolated from the other dimensions. We can picture that this schema should prevail in contexts where official channels monopolize social exchange, corruption is treated as a marginal exchange in the system and there is a broad consensus about the benefit of official channels. This schematization of corruption is coherent with some of the expectations of the main hypothesis of this project , as there is a strong coherence between moral legal and political conceptualizations of corruption, while corrupt exchanges are regarded as individual and marginal actions. If we look at the distribution of this class among countries (see annex 3) we find that it is pretty homogeneous among all 4 countries although it is slightly more common in the United Kingdom, which is the country with the lowest level of perceived corruption according to Transparency International.
+
+
+
+
+![ ](CoCA-1.png)
+
+
+#### Class 2
+In the second cultural schema there is also a connection between the substantive issues of *Legality (1) Morality (2)* and *Democracy (3)*, although the correlations are significantly weaker, and they are separated from the rest of the dimensions. The strongest correlation is a negative relation between the structural *Complexity (4)* and *Sphere (5)* dimensions, indicating that in this schema, corruption is regarded as a systemic and manly public issue.  The *Relation (6) dimension correlates positively with the *Sphere (5)*, indicating that behaviors of duty are linked to the private sphere, and not the public one. The *Complexity (4)* dimension correlates negatively with *Behaviour (7)*, indicating that the system is linked to irresponsibility. Finally the *Relation (7)* and *Reaction (8)* dimensions are positively and strongly correlated, while being both negatively correlated with *Sphere (5)* dimension and positively with the *Complexity (4)* dimension.    
+
+This schema constructs a picture in which there is a systematic tendency towards solidarity and exoneration in the public sphere. While the private sphere is strongly associated with duty and to a certain degree with legality morality and democracy. This schema shares again the coherence in substantive dimensions as legality morality and democracy correlate positively, although these dimensions are only connected to private behaviour and duty. While this schema presents a consensual vision of what to consider corrupt, corruption is strongly linked to the public function. These results do not coherently fit the expectations of the main hypothesis, as while there is linkage between the public and systemic dimensions to amoral and illegal behaviour, but there is a positive relation between moral legal and democratic dimensions. Regarding its distribution among countries, it is again relatively homogeneous (see annex 3), with the UK having the greatest numbers of this schema, followed by EEUU, South Africa and India.
+
+
+
+![](CoCA-2.png)
+     
+#### Class 3    
+The third cultural schema presents a fractionated structure segmented through a positive correlation of the dimensions of *Legality (1)*, *Morality (2)* and *Behaviour (7)*. Besides engaging in these dimensions, one part of the tweets sharing this schema engage in the dimensions of  *Reaction (8)* and *Democracy (3)*, which are positively correlated. A second set of tweets presents a negative relation between *Legality (1) and *Morality(2)* with the *Sphere (5)* and *Relations (6)* dimensions, indicating that legal and moral correlates with the public and with competition. They also correlate positively with the system polarity, but negatively with solidarity. Solidarity is also negatively correlated to the *Complexity (4)* dimension, indicating that morality and legality correlates with the individual pole. This schema is pretty segmented when compared to the other two, as the key substantive issues like legality morality and democracy, are linked, on one hand to duty and exoneration, but on the other hand, competition as well as to the public sphere and to the systemic dimension.    
+This schema apparently puts emphasis on the systemic and public nature of competition as it is linked to morality and legality. In annex 3  we can see that it is mostly common in India and South Africa, where we can expect a great number of exchanges happening outside the official channels and contradicting market rules.
+
+
+
+![](CoCA-3.png)   
+
+
+#### Class 4
+The fourth class has the greatest dispersions of substantive issues. It is the first class in which the *Legality (1)* and  *Morality (2)* dimensions do not have any kind of connection, while *Legality (1)* and *Democracy (3)* are positively but very weakly correlated. *Relation (5)*  and *Behaviour (6)*  have the strongest positive correlation and are both positively correlated to *Morality (2)*. *Relation (6)* is negatively correlated with *Complexity (4)*, indicating that tweets that engage with solidarity do also with individuality. The *Sphere (5)* dimension is pretty marginal in this schema and is only weakly and positively correlated to *Democracy (3)* while weakly and negatively correlated with *Complexity (4)*. Tweets that engage with *Relation (6)* and *Behaviour (6)*  also have a negative correlation with *Reaction (8)* indicating that they engage with the idea of punishment. Besides that, the *Legality (1)* and *Reaction (8)* dimensions are positively correlated but pretty marginalised from the rest of the dimensions. The interesting thing about this schema is the lack of connection between *Legality (1)* and *Morality (2)*, as well as the relatively marginalized position of *Democracy (3)* This schema is the one that approaches more the idea of  cultural schemas of corruption of individuals that participate in corrupt exchange networks. The schema describes a well established cultural space of extra-legal exchanges where morality, duty or solidarity do not have any connection to legality. This schema would be expected to be in contextes of high structural corruption. In annex 3 we can see that it is especially salient in India followed by South Africa, and EEUU with really similar levels, and finally the UK. These results offer some partial support for the main hypothesis of the paper, although the relatively homogeneous distribution of the schema among all four countries makes it difficult to prove its significance.
+
+
+![](CoCA-4.png)        
+  
+# Conclusions
+
+All the research published on the role of culture in corruption has focused on explicit declarative cultural elements. This project has been designed as an alternative analytical and methodological approach towards corruption, with the aims of understanding the role that nondeclarative cultural elements play in corrupt behaviour. While the nondeclarative dimensions of culture have been systematically ignored, theory and intuition point out the potential explanatory power of implicit cultural realms. 
+
+To extract and analyze nondeclarative cultural forms, a singular dataset was created from scratch through text mining techniques, and a new set of  statistical techniques was applied. 
+The main hypothesis of the project, that individuals from countries with structurally high levels of corruption will share a set of specific cultural schemas that will enable them to navigate corrupt networks of exchange, could not be proven. Even so, the statistical analysis has highlighted the potential of this analytical approach by extracting two cultural schemas (Class 1 and 4) that fit the theoretical assumptions about the different types of schemas. This reinforces the potential that analysis of nondeclarative cultural forms has to understand corruption from a relational perspective.
+
+Regarding the limitations of the paper, the possibility of establishing significant correlations between schematic distributions and national levels of corruption was limited due to the small sample of countries in the data. This could have been potentially solved by having a greater amount of RAM memory available for the analysis, as well as access to twitter's premump API, as more countries could be added to the data.  Besides these strictly technical limitations, the schematic classes yielded by the CoCA classification have proven to be very counterintuitive to interpret in some cases, which significantly limits the explanatory capacity of this type of analysis.
+
+Having in mind all the limitations of this project, it has established a partial basis which supports the idea that some individuals are suited with specific cultural schemas that enables them to participate in corrupt networks of exchanges. The connection between nondeclarative cultural forms, represented in this project as cultural schemas, and the relational perspective on corruption was established through the statistical analysis of natural language, supporting the idea of the relevance of non explicit cultural forms in understanding political outcomes.
+  
+
+#### Annex 1
+```{r Anex 1, echo=FALSE, include=TRUE}
+t1
+t2
+t3
+t4
+
+```
+
+
+
+```{r Anex 2, echo=FALSE, include=FALSE}
+t5 
+t6
+t7
+t8
+
+```
+
+
+#### Annex 2
+```{r Anex 3, echo=FALSE, include=TRUE, fig.height=2.5, fig.width=8, fig.align="center"}
+grid.arrange(usa_world__or_words_g_surprise, usa_world__or_words_g_sadness, usa_world__or_words_g_anger, nrow = 1,
+              top = ("Graph 4: Words driving American sentiments"))
+grid.arrange(uk_world__or_words_g_sadness, uk_world__or_words_g_anger, uk_world__or_words_g_fear, uk_world__or_words_g_disgust, nrow = 1,
+              top = ("Graph 5: Words driving United Kingdoms sentiments"))
+grid.arrange(south_africa_world__or_words_g_anger, south_africa_world__or_words_g_sadness, south_africa_world__or_words_g_anticipation,
+             south_africa_world__or_words_g_disgust, south_africa_world__or_words_g_fear, nrow = 1,
+              top = ("Graph 6: Words driving South African sentiments"))
+grid.arrange(india_world__or_words_g_trust, india_world__or_words_g_joy, nrow = 1,
+              top = ("Graph 7: Words driving Indian sentiments"))
+
+
+``` 
+### Annex 3
+![ ](CoCA classes by country.png)
+
+
+
+
+
+# Bibliography
+
+Berg, L. Hanh, H. Schmidhausje, RR, 1976. Corruption in the American Political System. Morristown, N.J.: General Learning Press. 
+Finn Årup N. (2011). A new ANEW: Evaluation of a word list for sentiment analysis in microblogs.
+
+Templeton, F. Alienation and political participation: some research findings. Public Opinion Quarterly, Volume 30, Issue 2, SUMMER 1966, Pages 249–261, https://doi.org/10.1086/267404 
+
+Getz, K. A., & Volkema, R. J. (2001). Culture, Perceived Corruption, and Economics: A Model of Predictors and Outcomes. Business & Society, 40(1), 7–30. https://doi.org/10.1177/000765030104000103 
+
+Gibbson, M., 1989. ‘Toward an Attitudinal Definition of Corruption’. In A. 3. Heidenheimer, M. Johnston and V. Le Vine, Political Corruption: A Handbook, New Brunswick, N.J.: Transaction Publishers, pp. 165-71. 
+
+Granovetter M. (2004). The Social Construction of Corruption. “The Norms, Beliefs and Institutions of 21st Century Capitalism: Celebrating the 100th Anniversary of Max Weber’s The Protestant Ethic and the Spirit of Capitalism”, October 8-9th, 2004, at Cornell University.
+
+Goldberg, Amir. 2011. “Mapping Shared Understandings Using Relational Class Analysis: The Case of the Cultural Omnivore Reexamined.” American Journal of Sociology 116(5):1397– 436. https://doi.org/10.1086/657976. 
+
+Heidenheimer, A.J. & Johnson, Michael. (2001) Political corruption: concepts and context. Library of Congress Catalog. 
+
+Heidenheimer, A.J. (1996), The topography of corruption: explorations in a comparative perspective. International Social Science Journal, 48: 337-347. https://doi.org/10.1111/1468-2451.00036 
+
+Hofstede, G. (1976). Nationality and espoused values of managers. Journal of Applied Psychology, 61, 148-155. 
+
+Hofstede, G. (1980). Culture’s consequences: International differences in work-related values. Beverly Hills, CA: Sage. 
+
+Hofstede, G. (1991). Culture and organizations: Software of the mind. London: McGraw-Hill. 
+
+Husted, B. Wealth, Culture, and Corruption. J Int Bus Stud 30, 339–359 (1999). https://doi.org/10.1057/palgrave.jibs.8490073 
+
+Husted, B.W. Culture and International Anti-Corruption Agreements in Latin America. Journal of Business Ethics 37, 413–422 (2002). https://doi.org/10.1023/A:1015248921716 
+
+Jancsics D. (2014). Interdisciplinary Perspectives on Corruption. Sociology Compass. Volume8, Issue4 April 2014 Pages 358-372.
+
+Klitgaard, R. (1988). Controlling Corruption. University of California Press. Retrieved January 20, 2021, from http://www.jstor.org/stable/10.1525/j.ctt1pnj3b 
+
+Kusner, Matt, Yu Sun, Nicholas Kolkin, and KilianWeinberger. 2015. “FromWord Embeddings to Document Distances.” Paper presented at the 32nd International Conference on Machine Learning, July 7–9, Lille, France. http://proceedings.mlr.press/v37/ kusnerb15.html. 
+
+Mikolov, Tomáš, Wen-tau Yih, and Geoffrey Zweig. 2013. “Linguistic Regularities in Continuous Space Word Representations.” Paper presented at the Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, June 9–14, Atlanta, GA. https://www.aclweb.org/anthology/N13-1090/. 
+
+Nye, J. (1967). Corruption and Political Development: A Cost-Benefit Analysis. American Political Science Review, 61(2), 417-427. doi:10.2307/1953254 
+
+Park, H. (2003), "Determinants of Corruption: A Cross‐National Analysis", Multinational Business Review, Vol. 11 No. 2, pp. 29-48. https://doi.org/10.1108/1525383X200300010 
+
+Rafael A. Irizarry. (2021) Introduction to Data Science Data Analysis and Prediction Algorithms with R.
+
+Saif M. Mohammad,Peter D. Turney (2012) A WORD–EMOTION ASSOCIATION LEXICON. First published: 04 September 2012
+
+Seleim, Ahmed & Bontis, Nick. (2009). The relationship between culture and corruption: A crossnational study. Journal of Intellectual Capital. 10. 10.1108/14691930910922978
+
+Swidler, A. (1986). Culture in Action: Symbols and Strategies. American Sociological Review, 51(2), 273-286. Retrieved January 20, 2021, from http://www.jstor.org/stable/2095521 
+
+Tarkowskj. I, 1989. ‘Old and New Patterns of Corruption in Poland and the USSR. Telos, 80, pp. 51- 62. 
+
+Taylor, Marshall A., and Dustin S. Stoltz. 2020. “Concept Class Analysis: A Method for Identifying Cultural Schemas in Texts.” Sociological Science 7:544-569. 
+
+Tolga Bolukbasi, Kai-Wei Chang, James Zou, Venkatesh Saligrama, and Adam Kalai. 2016. Man is to computer programmer as woman is to homemaker? debiasing word embeddings. In Proceedings of the 30th International Conference on Neural Information Processing Systems (NIPS'16). Curran Associates Inc., Red Hook, NY, USA, 4356–4364. 
+
+Wayne Sandholtz & Rein Taagepera (2005) Corruption, Culture, and Communism, International Review of Sociology, 15:1, 109-131, DOI: 10.1080/03906700500038678 
+
+Wood, M. L., Stoltz, D. S., Van Ness, J., & Taylor, M. A. (2018). Schemas and Frames. Sociological Theory, 36(3), 244–261. https://doi.org/10.1177/0735275118794981 
+
+Zellig S. Harris (1954) Distributional Structure, WORD, 10:2-3, 146-162, DOI: 10.1080/00437956.1954.11659520
